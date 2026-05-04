@@ -1,0 +1,31 @@
+{
+  "jquants": {
+    "api_version": "v2",
+    "api_key": "rnUL6Am6Pkvz2x96ycply5jVGrHHbT_Tjg0u56Zhg4A",
+    "base_url": "https://api.jquants.com"
+  },
+  "stock": {
+    "code": "46610",
+    "name": "Oriental Land",
+    "market_suffix": "JP",
+    "from": "20160504",
+    "to": "",
+    "timeframe": "D1"
+  },
+  "output": {
+    "symbol": "JP4661",
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "mt4_csv_dir": "data/mt4_csv",
+    "log_dir": "logs"
+  },
+  "mt4": {
+    "terminal_data_path": "C:/Users/admin/AppData/Roaming/MetaQuotes/Terminal/2010C2441A263399B34F537D91A53AC9",
+    "files_subdir": "MQL4/Files",
+    "history_subdir": "history/FxPro.com-Demo06"
+  },
+  "update": {
+    "run_time": "07:00",
+    "timezone": "Asia/Tokyo"
+  }
+}

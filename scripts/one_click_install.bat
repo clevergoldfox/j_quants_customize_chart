@@ -54,7 +54,22 @@ if errorlevel 1 (
   echo Scheduled task created: JQuants_MT4_Stock_Update_0700
 )
 
-echo [7/7] Done.
+echo [8/8] Running initial data update...
+
+if exist ".venv\Scripts\activate.bat" (
+  call ".venv\Scripts\activate.bat"
+)
+
+python scripts\update_multi_stocks.py --config config\config.json --install
+
+if errorlevel 1 (
+  echo.
+  echo Initial data update failed.
+  echo Please check API key and config.
+  pause
+  exit /b 1
+)
+echo [8/8] Done.
 echo.
 echo Next:
 echo  1. Edit config\config.json
