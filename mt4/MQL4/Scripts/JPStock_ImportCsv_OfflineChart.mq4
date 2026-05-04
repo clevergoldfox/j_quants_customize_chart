@@ -2,71 +2,84 @@
 #property script_show_inputs
 
 /*
-  JPStock_ImportCsv_OfflineChart
+  JPStock_ImportCsv_OfflineChart.mq4
 
-  Purpose:
-    Prototype script to read MQL4/Files/JP4661_D1.csv and create MT4 offline history file.
+  Fixed HST writer for MT4 build 600+ / build 1470.
 
-  Important:
-    MT4 .hst behavior can vary by build/broker.
-    Test on the target XMTrading MT4 build 1470 environment.
+  IMPORTANT FIX:
+    HST v401 rate record is 60 bytes.
+    datetime must be written as 8 bytes, not 4 bytes.
 
   CSV format:
     Date,Time,Open,High,Low,Close,Volume
-    2024.01.04,00:00,100,110,90,105,123456
-
-  Usage:
-    1. Put JP4661_D1.csv into MQL4/Files.
-    2. Compile this script in MetaEditor.
-    3. Drag script onto any chart.
-    4. Open File > Open Offline and select JP4661,D1 if generated.
+    2024.01.04,12:00,100,110,90,105,123456
 */
 
 input string InpCsvFile = "JP4661_D1.csv";
 input string InpOfflineSymbol = "JP4661";
-input int    InpPeriodMinutes = 1440;     // D1
-input int    InpDigits = 0;
-input bool   InpOpenOfflineChart = false; // experimental
+input int    InpPeriodMinutes = 1440;  // D1
+input int    InpDigits = 0;            // Japanese stock adjusted prices may have .5/.2
 
-#pragma pack(push,1)
-struct HstHeader
+void WriteFixedString(int handle, string value, int fixed_size)
 {
-   int      version;
-   char     copyright[64];
-   char     symbol[12];
-   int      period;
-   int      digits;
-   datetime timesign;
-   datetime last_sync;
-   int      unused[13];
-};
+   int len = StringLen(value);
+   for(int i = 0; i < fixed_size; i++)
+   {
+      int ch = 0;
+      if(i < len)
+         ch = StringGetCharacter(value, i);
+      FileWriteInteger(handle, ch, CHAR_VALUE);
+   }
+}
 
-struct RateRecord
+void WriteHstHeader(int handle, string symbol, int period_minutes, int digits)
 {
-   datetime ctm;
-   double   open;
-   double   high;
-   double   low;
-   double   close;
-   long     tick_volume;
-   int      spread;
-   long     real_volume;
-};
-#pragma pack(pop)
+   // HST v401 header = 148 bytes
+   FileWriteInteger(handle, 401, LONG_VALUE);                         // 4
+   WriteFixedString(handle, "(C) JQuants MT4 Stock Importer", 64);     // 64
+   WriteFixedString(handle, symbol, 12);                               // 12
+   FileWriteInteger(handle, period_minutes, LONG_VALUE);               // 4
+   FileWriteInteger(handle, digits, LONG_VALUE);                       // 4
+   FileWriteInteger(handle, (int)TimeCurrent(), LONG_VALUE);           // 4
+   FileWriteInteger(handle, (int)TimeCurrent(), LONG_VALUE);           // 4
 
-void SetCharArray(char &arr[], string value, int size)
+   for(int i = 0; i < 13; i++)                                        // 52
+      FileWriteInteger(handle, 0, LONG_VALUE);
+}
+
+void WriteRateRecord(int handle, datetime dt, double o, double h, double l, double c, long vol)
 {
-   ArrayInitialize(arr, 0);
-   for(int i=0; i<StringLen(value) && i<size-1; i++)
-      arr[i] = (char)StringGetCharacter(value, i);
+   /*
+     HST v401 / build 600+ record = 60 bytes
+
+     datetime time     8 bytes  IMPORTANT
+     double open       8 bytes
+     double high       8 bytes
+     double low        8 bytes
+     double close      8 bytes
+     long tick_volume  8 bytes
+     int spread        4 bytes
+     long real_volume  8 bytes
+   */
+
+   FileWriteLong(handle, (long)dt);          // 8 bytes, not FileWriteInteger
+   FileWriteDouble(handle, o, DOUBLE_VALUE);
+   FileWriteDouble(handle, h, DOUBLE_VALUE);
+   FileWriteDouble(handle, l, DOUBLE_VALUE);
+   FileWriteDouble(handle, c, DOUBLE_VALUE);
+   FileWriteLong(handle, vol);
+   FileWriteInteger(handle, 0, LONG_VALUE);
+   FileWriteLong(handle, vol);
 }
 
 bool ReadOneCsvRow(int h, datetime &dt, double &o, double &hi, double &lo, double &c, long &vol)
 {
-   if(FileIsEnding(h)) return(false);
+   if(FileIsEnding(h))
+      return(false);
 
    string d = FileReadString(h);
-   if(FileIsEnding(h) && StringLen(d) == 0) return(false);
+   if(StringLen(d) < 8)
+      return(false);
 
    string t = FileReadString(h);
    o = FileReadNumber(h);
@@ -75,32 +88,39 @@ bool ReadOneCsvRow(int h, datetime &dt, double &o, double &hi, double &lo, doubl
    c = FileReadNumber(h);
    double v = FileReadNumber(h);
 
-   if(StringLen(d) < 8) return(false);
-   dt = StringToTime(d + " " + t);
+   dt = StringToTime(d + " 00:00");
    vol = (long)v;
 
    return(dt > 0);
 }
 
+void SkipCsvHeader(int h)
+{
+   while(!FileIsEnding(h))
+   {
+      FileReadString(h);
+      if(FileIsLineEnding(h))
+         break;
+   }
+}
+
 void OnStart()
 {
-   int csv = FileOpen(InpCsvFile, FILE_READ|FILE_CSV|FILE_ANSI, ',');
+   ResetLastError();
+
+   int csv = FileOpen(InpCsvFile, FILE_READ | FILE_CSV | FILE_ANSI, ',');
    if(csv == INVALID_HANDLE)
    {
       Print("Cannot open CSV: ", InpCsvFile, " error=", GetLastError());
+      Print("Place CSV into: MT4 Data Folder > MQL4 > Files");
       return;
    }
 
-   // Skip header line
-   if(!FileIsEnding(csv))
-   {
-      string header = FileReadString(csv);
-      while(!FileIsLineEnding(csv) && !FileIsEnding(csv))
-         FileReadString(csv);
-   }
+   SkipCsvHeader(csv);
 
    string hstName = InpOfflineSymbol + IntegerToString(InpPeriodMinutes) + ".hst";
-   int hst = FileOpenHistory(hstName, FILE_BIN|FILE_WRITE);
+
+   int hst = FileOpenHistory(hstName, FILE_BIN | FILE_WRITE);
    if(hst == INVALID_HANDLE)
    {
       Print("Cannot open HST file: ", hstName, " error=", GetLastError());
@@ -108,16 +128,7 @@ void OnStart()
       return;
    }
 
-   HstHeader header;
-   header.version = 401;
-   SetCharArray(header.copyright, "(C) JQuants MT4 Stock Importer", 64);
-   SetCharArray(header.symbol, InpOfflineSymbol, 12);
-   header.period = InpPeriodMinutes;
-   header.digits = InpDigits;
-   header.timesign = TimeCurrent();
-   header.last_sync = TimeCurrent();
-
-   FileWriteStruct(hst, header);
+   WriteHstHeader(hst, InpOfflineSymbol, InpPeriodMinutes, InpDigits);
 
    int count = 0;
    datetime dt;
@@ -126,31 +137,18 @@ void OnStart()
 
    while(!FileIsEnding(csv))
    {
-      if(!ReadOneCsvRow(csv, dt, o, hi, lo, c, vol))
-         continue;
-
-      RateRecord r;
-      r.ctm = dt;
-      r.open = o;
-      r.high = hi;
-      r.low = lo;
-      r.close = c;
-      r.tick_volume = vol;
-      r.spread = 0;
-      r.real_volume = vol;
-
-      FileWriteStruct(hst, r);
-      count++;
+      if(ReadOneCsvRow(csv, dt, o, hi, lo, c, vol))
+      {
+         WriteRateRecord(hst, dt, o, hi, lo, c, vol);
+         count++;
+      }
    }
 
+   FileFlush(hst);
    FileClose(csv);
    FileClose(hst);
 
    Print("Created offline HST: ", hstName, " records=", count);
-   Print("Open MT4 menu: File > Open Offline > ", InpOfflineSymbol, ",D1");
-
-   if(InpOpenOfflineChart)
-   {
-      Print("Auto open offline chart is not guaranteed on all MT4 builds. Please open manually if needed.");
-   }
+   Print("HST record format: 60 bytes, datetime=8 bytes.");
+   Print("Please close old JP4661 offline chart if opened, then open: File > Open Offline > ", InpOfflineSymbol, ",D1");
 }
