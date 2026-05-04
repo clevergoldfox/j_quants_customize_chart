@@ -1,0 +1,11 @@
+config/config.json
+.venv/
+__pycache__/
+*.pyc
+logs/*.log
+data/raw/*
+data/processed/*
+data/mt4_csv/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/mt4_csv/.gitkeep
