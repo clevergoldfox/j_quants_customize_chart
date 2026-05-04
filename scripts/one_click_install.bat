@@ -43,34 +43,7 @@ if not exist "config\config.json" (
 )
 
 echo [5/7] Installing MT4 scripts if terminal_data_path is configured...
-
-python - <<PY
-import json, shutil, sys
-from pathlib import Path
-
-cfg_path = Path("config/config.json")
-cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-
-terminal = Path(cfg.get("mt4", {}).get("terminal_data_path", ""))
-if "YOUR_USER" in str(terminal) or "YOUR_TERMINAL_ID" in str(terminal) or not terminal.exists():
-    print("MT4 terminal_data_path is not configured yet.")
-    print("Open MT4 > File > Open Data Folder, then set that path in config/config.json.")
-    sys.exit(0)
-
-pairs = [
-    (Path("mt4/MQL4/Scripts"), terminal / cfg["mt4"].get("scripts_subdir", "MQL4/Scripts")),
-    (Path("mt4/MQL4/Indicators"), terminal / cfg["mt4"].get("indicators_subdir", "MQL4/Indicators")),
-]
-
-for src_dir, dst_dir in pairs:
-    if not src_dir.exists():
-        continue
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    for src in src_dir.glob("*.mq4"):
-        dst = dst_dir / src.name
-        shutil.copy2(src, dst)
-        print(f"Copied {src} -> {dst}")
-PY
+python scripts\install_mt4_mq4.py --config config\config.json
 
 echo [6/7] Creating AM7:00 scheduled task...
 schtasks /Create /TN "JQuants_MT4_Stock_Update_0700" /TR "\"%CD%\scripts\update_multi_stocks.bat\"" /SC DAILY /ST 07:00 /F >nul
